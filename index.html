@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CMH4 – Email Header Editor</title>
+
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+
+<style>
+body { font-family: Inter, sans-serif; background:#020617; color:#e5e7eb; }
+textarea { font-family: monospace; }
+</style>
+</head>
+<body class="min-h-screen p-6 flex justify-center items-start">
+
+<div class="w-full max-w-7xl bg-slate-900 rounded-2xl shadow-2xl p-6 space-y-6">
+
+<header class="text-center">
+<h1 class="text-4xl font-bold text-emerald-400">CMH4 Header Editor</h1>
+<p class="text-slate-400 mt-2">Strict header editing — body preserved — multi-file support</p>
+</header>
+
+<div class="grid md:grid-cols-3 gap-4 bg-slate-800 p-4 rounded-xl">
+<div>
+<label class="flex items-center gap-2">
+<input type="checkbox" id="optFrom" checked>
+<span>Force <b>From</b></span>
+</label>
+<input id="valFrom" class="w-full mt-2 p-2 bg-slate-900 rounded"
+value="From: Recraft &lt;noreply[5LAN]@[RP]&gt;">
+</div>
+
+<div>
+<label class="flex items-center gap-2">
+<input type="checkbox" id="optMsgId" checked>
+<span>Force <b>Message-ID</b></span>
+</label>
+<input id="valMsgId" class="w-full mt-2 p-2 bg-slate-900 rounded"
+value="Message-ID: &lt;23652140.99127.[EID]1761574413879@keycloak-0.keycloak-headless.prod.svc.cluster.local&gt;">
+</div>
+
+<div>
+<label class="flex items-center gap-2">
+<input type="checkbox" id="optSender" checked>
+<span>Force <b>Sender</b></span>
+</label>
+<input id="valSender" class="w-full mt-2 p-2 bg-slate-900 rounded"
+value="Sender: no-reply[KA]@[RP]">
+</div>
+</div>
+
+<div class="mt-4">
+<label class="block mb-2 font-semibold text-slate-300"><i class="fas fa-folder-open mr-2"></i>Select Email Files:</label>
+<input type="file" id="filesInput" multiple class="p-2 rounded bg-slate-800 w-full">
+</div>
+
+<div class="mt-4">
+<button id="processFiles" class="bg-emerald-500 hover:bg-emerald-600 text-black py-2 px-4 rounded font-semibold">
+<i class="fas fa-sliders-h mr-2"></i>Process All Files
+</button>
+</div>
+
+<div id="results" class="mt-4 space-y-2"></div>
+
+<footer class="text-center text-xs text-slate-500 mt-6">
+CMH4 © 2026 — Khouloud Ben Sellam
+</footer>
+
+</div>
+
+<script>
+function processEmail(raw) {
+    const allowed = [
+        "received:",
+        "x-google-smtp-source:",
+        "x-received:",
+        "date:",
+        "to:",
+        "from:",
+        "sender:",
+        "message-id:",
+        "subject:",
+        "mime-version:",
+        "content-type:",
+        "content-transfer-encoding:"
+    ];
+
+    const exactOrder = [
+        "received:",
+        "x-google-smtp-source:",
+        "x-received:",
+        "date:",
+        "to:",
+        "from:",
+        "sender:",
+        "message-id:",
+        "content-type:",
+        "content-transfer-encoding:"
+    ];
+
+
+    const lines = raw.split(/\r?\n/);
+    let headers = [], body = [], inHeaders = true, current = "";
+
+    for (let line of lines) {
+        if (inHeaders && line.trim() === "") { inHeaders = false; continue; }
+        if (inHeaders) {
+            if (/^[a-z0-9-]+:/i.test(line)) {
+                if (current) headers.push(current);
+                current = line.trim();
+            } else if (/^[ \t]/.test(line)) {
+                current += " " + line.trim();
+            }
+        } else body.push(line);
+    }
+    if (current) headers.push(current);
+	
+
+    headers = headers.map(h => {
+        if (h.toLowerCase().startsWith("content-transfer-encoding:")) {
+            return "Content-Transfer-Encoding: " + h.split(":").slice(1).join(":").trim();
+        }
+        return h;
+    });
+
+    headers = headers.filter(h =>
+        allowed.some(a => h.toLowerCase().startsWith(a))
+    );
+
+    headers = headers.filter(h => allowed.some(a => h.toLowerCase().startsWith(a)));
+    headers = headers.map(h => {
+    // Replace To: username → [*to]
+    if (h.toLowerCase().startsWith("to:")) {
+        return "To: [*to]";
+    }
+
+    // Replace Date: date → [DATE]
+    if (h.toLowerCase().startsWith("date:")) {
+        return "Date: [DATE]";
+    }
+
+    return h;
+    });
+
+    let fromHeader = headers.find(h => h.toLowerCase().startsWith("from:")) || "";
+    if (fromHeader && document.getElementById("optFrom").checked) {
+        const match = fromHeader.match(/<([^>]+)>/);
+        if (match) {
+            let email = match[1];
+            let parts = email.split("@");
+            if (parts.length === 2) {
+                email = parts[0] + "[5LAN]@" + "[RP]";
+                fromHeader = `${fromHeader.split("<")[0].trim()} <${email}>`;
+            }
+        }
+    }
+    
+    let msgIdHeader = headers.find(h => h.toLowerCase().startsWith("message-id:")) || "";
+    if (msgIdHeader && document.getElementById("optMsgId").checked) {
+        const match = msgIdHeader.match(/<([^>]+)>/);
+        if (match) {
+            let id = match[1];
+            const atIndex = id.indexOf("@");
+            if (atIndex !== -1) id = id.slice(0, atIndex) + "[EID]" + id.slice(atIndex);
+            msgIdHeader = `Message-ID: <${id}>`;
+        }
+    }
+
+    headers = headers.filter(h => !h.toLowerCase().startsWith("from:") &&
+                                   !h.toLowerCase().startsWith("message-id:") &&
+                                   !h.toLowerCase().startsWith("sender:"));
+
+    if (fromHeader) headers.push(fromHeader);
+    if (msgIdHeader) headers.push(msgIdHeader);
+    if (document.getElementById("optSender").checked) headers.push(document.getElementById("valSender").value);
+
+    return headers.join("\n") + "\n\n" + body.join("\n");
+}
+
+document.getElementById("processFiles").addEventListener("click", () => {
+    const files = document.getElementById("filesInput").files;
+    const results = document.getElementById("results");
+    results.innerHTML = "";
+
+    if (!files.length) {
+        results.textContent = "No files selected.";
+        return;
+    }
+
+    for (let file of files) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const processed = processEmail(e.target.result);
+            const blob = new Blob([processed], { type: "text/plain" });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = "processed_" + file.name;
+            link.textContent = "Download processed: " + file.name;
+            link.className = "block text-emerald-400 hover:underline";
+            results.appendChild(link);
+        };
+        reader.readAsText(file);
+    }
+});
+</script>
+
+</body>
+</html>
+
+
